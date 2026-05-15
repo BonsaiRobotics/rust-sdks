@@ -316,6 +316,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.12.58 (2026-05-15)
+
+### Fixes
+
+- Fix LocalTrackPublished handle leak - #1065 (@MaxHeimbrock)
+
 ## 0.12.57 (2026-05-14)
 
 ### Fixes
