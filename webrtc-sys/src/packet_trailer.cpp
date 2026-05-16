@@ -83,13 +83,23 @@ void PacketTrailerTransformer::TransformSend(
   // store_frame_metadata() truncates its key the same way.
   PacketTrailerMetadata meta_to_embed{0, 0, 0};
   auto capture_time = frame->CaptureTime();
+  bool diag_found = false;
+  int64_t diag_lookup_us = -1;
+  size_t diag_map_size = 0;
+  int64_t diag_sample_key = 0;
   if (capture_time.has_value()) {
     int64_t capture_us = capture_time->us();
+    diag_lookup_us = capture_us;
 
     webrtc::MutexLock lock(&send_map_mutex_);
+    diag_map_size = send_map_.size();
+    if (!send_map_.empty()) {
+      diag_sample_key = send_map_.begin()->first;
+    }
     auto it = send_map_.find(capture_us);
     if (it != send_map_.end()) {
       meta_to_embed = it->second;
+      diag_found = true;
       // Don't erase — simulcast layers share the same capture time.
       // Entries are pruned by capacity in store_frame_metadata().
     }
@@ -97,6 +107,24 @@ void PacketTrailerTransformer::TransformSend(
     RTC_LOG(LS_WARNING)
         << "PacketTrailerTransformer::TransformSend CaptureTime() not available"
         << " ssrc=" << ssrc << " rtp_ts=" << rtp_timestamp;
+  }
+
+  // Throttled diagnostic: log once per second so we can see the
+  // lookup key, sample stored key, and map size from journalctl.
+  // Distinguishes "store_frame_metadata never fires" (map size 0)
+  // from "key mismatch" (map size > 0 but no hit).
+  {
+    static thread_local int64_t last_diag_log_ms = 0;
+    int64_t now_ms = webrtc::TimeMillis();
+    if (now_ms - last_diag_log_ms > 1000) {
+      last_diag_log_ms = now_ms;
+      RTC_LOG(LS_INFO) << "PacketTrailerTransformer::TransformSend"
+                       << " ssrc=" << ssrc << " rtp_ts=" << rtp_timestamp
+                       << " lookup_us=" << diag_lookup_us
+                       << " map_size=" << diag_map_size
+                       << " sample_key=" << diag_sample_key
+                       << " found=" << (diag_found ? "yes" : "no");
+    }
   }
 
   // Always append trailer when enabled (even if timestamp is 0,
