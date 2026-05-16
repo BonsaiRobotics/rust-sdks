@@ -195,6 +195,16 @@ bool EncodedVideoTrackSource::InternalSource::push_encoded_frame(
     if (packet_trailer_handler_ && user_timestamp != 0) {
       packet_trailer_handler_->store_frame_metadata(capture_time_us,
                                                     user_timestamp, frame_id);
+      // Log once per second (rough) so we can confirm in journalctl
+      // that the path is live without spamming.
+      static thread_local int64_t last_log_us = 0;
+      if (capture_time_us - last_log_us > 1'000'000) {
+        last_log_us = capture_time_us;
+        RTC_LOG(LS_INFO) << "EncodedVideoTrackSource[" << source_id_
+                         << "] store_frame_metadata capture_us="
+                         << capture_time_us
+                         << " user_ts=" << user_timestamp;
+      }
     }
 
     if (width != 0 && height != 0) {
@@ -360,6 +370,8 @@ void EncodedVideoTrackSource::InternalSource::set_observer(
 void EncodedVideoTrackSource::InternalSource::set_packet_trailer_handler(
     std::shared_ptr<PacketTrailerHandler> handler) {
   webrtc::MutexLock lock(&mutex_);
+  RTC_LOG(LS_INFO) << "EncodedVideoTrackSource[" << source_id_
+                   << "] packet_trailer_handler installed";
   packet_trailer_handler_ = std::move(handler);
 }
 
