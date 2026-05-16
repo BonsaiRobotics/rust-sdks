@@ -119,6 +119,7 @@ void PacketTrailerTransformer::TransformSend(
     if (now_ms - last_diag_log_ms > 1000) {
       last_diag_log_ms = now_ms;
       RTC_LOG(LS_INFO) << "PacketTrailerTransformer::TransformSend"
+                       << " transformer=" << static_cast<const void*>(this)
                        << " ssrc=" << ssrc << " rtp_ts=" << rtp_timestamp
                        << " lookup_us=" << diag_lookup_us
                        << " map_size=" << diag_map_size
@@ -469,6 +470,19 @@ void PacketTrailerHandler::store_frame_metadata(
     int64_t capture_timestamp_us,
     uint64_t user_timestamp,
     uint32_t frame_id) const {
+  // Throttled log so we can pair handler identity + transformer identity
+  // against the TransformSend side and confirm both ends share the same
+  // C++ instance (and therefore the same send_map_).
+  static thread_local int64_t last_log_ms = 0;
+  int64_t now_ms = webrtc::TimeMillis();
+  if (now_ms - last_log_ms > 1000) {
+    last_log_ms = now_ms;
+    RTC_LOG(LS_INFO) << "PacketTrailerHandler::store_frame_metadata"
+                     << " handler=" << static_cast<const void*>(this)
+                     << " transformer=" << transformer_.get()
+                     << " capture_us=" << capture_timestamp_us
+                     << " user_ts=" << user_timestamp;
+  }
   transformer_->store_frame_metadata(capture_timestamp_us, user_timestamp, frame_id);
 }
 

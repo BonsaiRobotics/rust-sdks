@@ -203,7 +203,9 @@ bool EncodedVideoTrackSource::InternalSource::push_encoded_frame(
         RTC_LOG(LS_INFO) << "EncodedVideoTrackSource[" << source_id_
                          << "] store_frame_metadata capture_us="
                          << capture_time_us
-                         << " user_ts=" << user_timestamp;
+                         << " user_ts=" << user_timestamp
+                         << " source=" << static_cast<const void*>(this)
+                         << " handler=" << packet_trailer_handler_.get();
       }
     }
 
@@ -371,7 +373,9 @@ void EncodedVideoTrackSource::InternalSource::set_packet_trailer_handler(
     std::shared_ptr<PacketTrailerHandler> handler) {
   webrtc::MutexLock lock(&mutex_);
   RTC_LOG(LS_INFO) << "EncodedVideoTrackSource[" << source_id_
-                   << "] packet_trailer_handler installed";
+                   << "] packet_trailer_handler installed"
+                   << " source=" << static_cast<const void*>(this)
+                   << " handler=" << handler.get();
   packet_trailer_handler_ = std::move(handler);
 }
 
