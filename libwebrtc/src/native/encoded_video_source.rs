@@ -21,6 +21,7 @@ use cxx::SharedPtr;
 use parking_lot::Mutex;
 use webrtc_sys::encoded_video_source as sys_evs;
 
+use crate::native::packet_trailer::PacketTrailerHandler;
 use crate::video_source::{EncodedFrameInfo, VideoCodec, VideoResolution};
 
 /// Observer that receives encoder-side feedback (keyframe requests, bitrate
@@ -116,6 +117,13 @@ impl NativeEncodedVideoSource {
     /// Push an encoded (compressed) frame to the track. Returns `true` if the frame was
     /// accepted, `false` if the internal queue was full and the frame had to
     /// be dropped.
+    ///
+    /// When a `PacketTrailerHandler` has been registered (see
+    /// `set_packet_trailer_handler`) and `info.user_timestamp != 0`, the
+    /// pair `(user_timestamp, frame_id)` is stored on the handler keyed
+    /// by `info.capture_time_us`. The C++ trailer transformer appends an
+    /// LKTS packet trailer to the encoded frame on-wire so the receiver
+    /// can recover the metadata via `lookupFrameMetadata`.
     pub fn capture_frame(&self, data: &[u8], info: &EncodedFrameInfo) -> bool {
         {
             let mut res = self.inner.resolution.lock();
@@ -131,6 +139,8 @@ impl NativeEncodedVideoSource {
             info.resolution.width,
             info.resolution.height,
             info.capture_time_us,
+            info.user_timestamp,
+            info.frame_id,
         )
     }
 
@@ -141,6 +151,16 @@ impl NativeEncodedVideoSource {
             inner: observer,
         })));
         self.sys_handle.set_observer(wrapper);
+    }
+
+    /// Set the packet trailer handler used by this source. Symmetric to
+    /// `NativeVideoSource::set_packet_trailer_handler`. When set, any
+    /// frame captured with a non-zero `user_timestamp` will automatically
+    /// have `(user_timestamp, frame_id)` stored on the handler so the
+    /// C++ `PacketTrailerTransformer` can embed them in the encoded
+    /// frame's LKTS trailer.
+    pub fn set_packet_trailer_handler(&self, handler: PacketTrailerHandler) {
+        self.sys_handle.set_packet_trailer_handler(handler.sys_handle());
     }
 
     pub fn sys_handle(&self) -> SharedPtr<sys_evs::ffi::EncodedVideoTrackSource> {

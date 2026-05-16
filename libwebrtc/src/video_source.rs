@@ -52,6 +52,19 @@ pub struct EncodedFrameInfo {
     pub resolution: VideoResolution,
     /// Capture timestamp in microseconds. `0` lets the source stamp `now`.
     pub capture_time_us: i64,
+    /// Optional user-supplied wall-clock timestamp in microseconds. When
+    /// the source has a `PacketTrailerHandler` set (via
+    /// `set_packet_trailer_handler`) and this value is non-zero, the SDK
+    /// stores `(user_timestamp, frame_id)` keyed by `capture_time_us` so
+    /// the C++ trailer transformer can embed it on the encoded frame's
+    /// LKTS packet trailer. The published track must also be created
+    /// with `packet_trailer_features.user_timestamp = true` for the
+    /// transformer to be installed in the first place.
+    pub user_timestamp: u64,
+    /// Optional user-supplied per-frame id. Stored alongside
+    /// `user_timestamp`; the receiver-side extractor returns it as
+    /// `frame_id` on `PacketTrailerMetadata`.
+    pub frame_id: u32,
 }
 
 impl Default for EncodedFrameInfo {
@@ -61,6 +74,8 @@ impl Default for EncodedFrameInfo {
             has_sps_pps: false,
             resolution: VideoResolution { width: 0, height: 0 },
             capture_time_us: 0,
+            user_timestamp: 0,
+            frame_id: 0,
         }
     }
 }

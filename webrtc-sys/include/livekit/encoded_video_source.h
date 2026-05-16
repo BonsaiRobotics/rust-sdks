@@ -34,6 +34,7 @@ namespace livekit_ffi {
 
 class EncodedVideoTrackSource;
 class EncodedVideoSourceWrapper;
+class PacketTrailerHandler;  // forward declaration to avoid circular include
 
 }  // namespace livekit_ffi
 
@@ -92,12 +93,24 @@ class EncodedVideoTrackSource {
     // Enqueues the encoded bytes and pushes one dummy VideoFrame into the
     // WebRTC pipeline so the encoder tick fires. Returns false if the frame
     // was dropped because the queue was full and the frame was not a keyframe.
+    //
+    // When a `PacketTrailerHandler` has been registered (via
+    // `set_packet_trailer_handler`) AND `user_timestamp != 0`, the
+    // (user_timestamp, frame_id) pair is stored on the handler keyed by
+    // `capture_time_us`. The C++ trailer transformer downstream looks the
+    // mapping up at encoded-frame time so an LKTS packet trailer is
+    // appended to the on-wire encoded bytes.
     bool push_encoded_frame(std::vector<uint8_t> data,
                             bool is_keyframe,
                             bool has_sps_pps,
                             uint32_t width,
                             uint32_t height,
-                            int64_t capture_time_us);
+                            int64_t capture_time_us,
+                            uint64_t user_timestamp,
+                            uint32_t frame_id);
+
+    void set_packet_trailer_handler(
+        std::shared_ptr<PacketTrailerHandler> handler);
 
     struct DequeuedFrame {
       std::vector<uint8_t> data;
@@ -136,6 +149,11 @@ class EncodedVideoTrackSource {
     std::vector<uint8_t> cached_sps_;
     std::vector<uint8_t> cached_pps_;
 
+    // Optional packet trailer handler. When set, push_encoded_frame
+    // stores the (user_timestamp, frame_id) pair on the handler so the
+    // C++ trailer transformer can find it by capture_time_us later.
+    std::shared_ptr<PacketTrailerHandler> packet_trailer_handler_;
+
     static constexpr size_t kMaxQueueSize = 8;
   };
 
@@ -153,9 +171,14 @@ class EncodedVideoTrackSource {
                      bool has_sps_pps,
                      uint32_t width,
                      uint32_t height,
-                     int64_t capture_time_us) const;
+                     int64_t capture_time_us,
+                     uint64_t user_timestamp,
+                     uint32_t frame_id) const;
 
   void set_observer(rust::Box<EncodedVideoSourceWrapper> observer) const;
+
+  void set_packet_trailer_handler(
+      std::shared_ptr<PacketTrailerHandler> handler) const;
 
   webrtc::scoped_refptr<InternalSource> get() const { return source_; }
 

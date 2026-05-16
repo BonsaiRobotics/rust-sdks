@@ -32,6 +32,7 @@ pub mod ffi {
         include!("livekit/encoded_video_source.h");
 
         type EncodedVideoTrackSource;
+        type PacketTrailerHandler = crate::packet_trailer::ffi::PacketTrailerHandler;
 
         fn new_encoded_video_track_source(
             codec: EncodedVideoCodecType,
@@ -51,9 +52,16 @@ pub mod ffi {
             width: u32,
             height: u32,
             capture_time_us: i64,
+            user_timestamp: u64,
+            frame_id: u32,
         ) -> bool;
 
         fn set_observer(self: &EncodedVideoTrackSource, observer: Box<EncodedVideoSourceWrapper>);
+
+        fn set_packet_trailer_handler(
+            self: &EncodedVideoTrackSource,
+            handler: SharedPtr<PacketTrailerHandler>,
+        );
     }
 
     extern "Rust" {

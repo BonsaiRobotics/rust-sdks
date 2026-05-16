@@ -24,7 +24,8 @@ use livekit::{
 use parking_lot::Mutex;
 
 use super::{
-    audio_source, audio_stream, colorcvt, data_stream, data_track, participant::FfiParticipant,
+    audio_source, audio_stream, colorcvt, data_stream, data_track,
+    participant::FfiParticipant,
     resampler,
     room::{self, FfiPublication, FfiTrack},
     video_source, video_stream, FfiError, FfiResult, FfiServer,

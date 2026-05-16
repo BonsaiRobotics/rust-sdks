@@ -420,6 +420,15 @@ impl LocalParticipant {
                 if let RtcVideoSource::Native(ref native_source) = video_track.rtc_source() {
                     native_source.set_packet_trailer_handler(handler.clone());
                 }
+                // Symmetric wiring for the encoded (pre-encoded H.264 /
+                // H.265 / VPx / AV1) path: the source stores
+                // `(user_timestamp, frame_id)` keyed by `capture_time_us`
+                // on each `capture_frame` so the C++ trailer transformer
+                // can find the metadata at encoded-frame time.
+                #[cfg(not(target_arch = "wasm32"))]
+                if let RtcVideoSource::Encoded(ref encoded_source) = video_track.rtc_source() {
+                    encoded_source.set_packet_trailer_handler(handler.clone());
+                }
             }
         }
 

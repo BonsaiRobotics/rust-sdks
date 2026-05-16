@@ -23,6 +23,7 @@
 #include "api/video/i420_buffer.h"
 #include "api/video/video_frame.h"
 #include "api/video/video_rotation.h"
+#include "livekit/packet_trailer.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/ref_counted_object.h"
 #include "rtc_base/time_utils.h"
@@ -179,9 +180,22 @@ bool EncodedVideoTrackSource::InternalSource::push_encoded_frame(
     bool has_sps_pps,
     uint32_t width,
     uint32_t height,
-    int64_t capture_time_us) {
+    int64_t capture_time_us,
+    uint64_t user_timestamp,
+    uint32_t frame_id) {
   {
     webrtc::MutexLock lock(&mutex_);
+
+    // If a packet trailer handler was registered and the caller supplied
+    // a user timestamp, store the (user_timestamp, frame_id) pair on the
+    // handler keyed by capture_time_us. The trailer transformer
+    // downstream looks up by the encoded frame's CaptureTime() which is
+    // populated from the VideoFrame::timestamp_us we emit at the bottom
+    // of this function.
+    if (packet_trailer_handler_ && user_timestamp != 0) {
+      packet_trailer_handler_->store_frame_metadata(capture_time_us,
+                                                    user_timestamp, frame_id);
+    }
 
     if (width != 0 && height != 0) {
       width_ = width;
@@ -343,6 +357,12 @@ void EncodedVideoTrackSource::InternalSource::set_observer(
       std::move(observer));
 }
 
+void EncodedVideoTrackSource::InternalSource::set_packet_trailer_handler(
+    std::shared_ptr<PacketTrailerHandler> handler) {
+  webrtc::MutexLock lock(&mutex_);
+  packet_trailer_handler_ = std::move(handler);
+}
+
 // ---------- EncodedVideoTrackSource ----------
 
 EncodedVideoTrackSource::EncodedVideoTrackSource(EncodedVideoCodecType codec,
@@ -369,15 +389,23 @@ bool EncodedVideoTrackSource::capture_frame(rust::Slice<const uint8_t> data,
                                             bool has_sps_pps,
                                             uint32_t width,
                                             uint32_t height,
-                                            int64_t capture_time_us) const {
+                                            int64_t capture_time_us,
+                                            uint64_t user_timestamp,
+                                            uint32_t frame_id) const {
   std::vector<uint8_t> buf(data.begin(), data.end());
   return source_->push_encoded_frame(std::move(buf), is_keyframe, has_sps_pps,
-                                     width, height, capture_time_us);
+                                     width, height, capture_time_us,
+                                     user_timestamp, frame_id);
 }
 
 void EncodedVideoTrackSource::set_observer(
     rust::Box<EncodedVideoSourceWrapper> observer) const {
   source_->set_observer(std::move(observer));
+}
+
+void EncodedVideoTrackSource::set_packet_trailer_handler(
+    std::shared_ptr<PacketTrailerHandler> handler) const {
+  source_->set_packet_trailer_handler(std::move(handler));
 }
 
 std::shared_ptr<EncodedVideoTrackSource> new_encoded_video_track_source(
