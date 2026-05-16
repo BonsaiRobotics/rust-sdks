@@ -45,9 +45,21 @@ impl Default for PeerConnectionFactory {
     fn default() -> Self {
         let mut log_sink = LOG_SINK.lock();
         if log_sink.is_none() {
-            *log_sink = Some(sys_rtc::ffi::new_log_sink(|msg, _| {
+            *log_sink = Some(sys_rtc::ffi::new_log_sink(|msg, severity| {
+                use sys_rtc::ffi::LoggingSeverity;
                 let msg = msg.strip_suffix("\r\n").or(msg.strip_suffix('\n')).unwrap_or(&msg);
-                log::debug!(target: "libwebrtc", "{}", msg);
+                // Bridge libwebrtc's severity to the matching `log` level
+                // so callers using the default `RUST_LOG=info` get to
+                // see WARNING/ERROR plus any explicit RTC_LOG(LS_INFO).
+                // Verbose stays at TRACE so the firehose only fires
+                // when callers explicitly opt in via `libwebrtc=trace`.
+                match severity {
+                    LoggingSeverity::Error => log::error!(target: "libwebrtc", "{}", msg),
+                    LoggingSeverity::Warning => log::warn!(target: "libwebrtc", "{}", msg),
+                    LoggingSeverity::Info => log::info!(target: "libwebrtc", "{}", msg),
+                    LoggingSeverity::Verbose => log::trace!(target: "libwebrtc", "{}", msg),
+                    _ => log::debug!(target: "libwebrtc", "{}", msg),
+                }
             }));
         }
 
