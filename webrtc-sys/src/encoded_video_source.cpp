@@ -183,26 +183,35 @@ bool EncodedVideoTrackSource::InternalSource::push_encoded_frame(
     int64_t capture_time_us,
     uint64_t user_timestamp,
     uint32_t frame_id) {
+  // Translate the producer's wall-clock `capture_time_us` (or now, if
+  // unset) into WebRTC's monotonic clock domain.  The aligned value is
+  // what the downstream FrameTransformer will read back as
+  // `frame->CaptureTime()` for the EncodedImage we emit, so it must be
+  // the storage key for the packet trailer metadata too.
+  int64_t external_us = capture_time_us != 0
+                            ? capture_time_us
+                            : webrtc::TimeMicros();
+  int64_t aligned_timestamp_us = timestamp_aligner_.TranslateTimestamp(
+      external_us, webrtc::TimeMicros());
+
   {
     webrtc::MutexLock lock(&mutex_);
 
     // If a packet trailer handler was registered and the caller supplied
     // a user timestamp, store the (user_timestamp, frame_id) pair on the
-    // handler keyed by capture_time_us. The trailer transformer
-    // downstream looks up by the encoded frame's CaptureTime() which is
-    // populated from the VideoFrame::timestamp_us we emit at the bottom
-    // of this function.
+    // handler keyed by the aligned timestamp.
     if (packet_trailer_handler_ && user_timestamp != 0) {
-      packet_trailer_handler_->store_frame_metadata(capture_time_us,
+      packet_trailer_handler_->store_frame_metadata(aligned_timestamp_us,
                                                     user_timestamp, frame_id);
       // Log once per second (rough) so we can confirm in journalctl
       // that the path is live without spamming.
       static thread_local int64_t last_log_us = 0;
-      if (capture_time_us - last_log_us > 1'000'000) {
-        last_log_us = capture_time_us;
+      if (aligned_timestamp_us - last_log_us > 1'000'000) {
+        last_log_us = aligned_timestamp_us;
         RTC_LOG(LS_INFO) << "EncodedVideoTrackSource[" << source_id_
-                         << "] store_frame_metadata capture_us="
-                         << capture_time_us
+                         << "] store_frame_metadata aligned_us="
+                         << aligned_timestamp_us
+                         << " external_us=" << external_us
                          << " user_ts=" << user_timestamp
                          << " source=" << static_cast<const void*>(this)
                          << " handler=" << packet_trailer_handler_.get();
@@ -310,7 +319,7 @@ bool EncodedVideoTrackSource::InternalSource::push_encoded_frame(
     f.has_sps_pps = has_sps_pps;
     f.width = width_;
     f.height = height_;
-    f.capture_time_us = capture_time_us;
+    f.capture_time_us = aligned_timestamp_us;
     queue_.push_back(std::move(f));
   }
 
@@ -328,8 +337,7 @@ bool EncodedVideoTrackSource::InternalSource::push_encoded_frame(
       webrtc::VideoFrame::Builder()
           .set_video_frame_buffer(dummy_buffer)
           .set_rotation(webrtc::kVideoRotation_0)
-          .set_timestamp_us(capture_time_us != 0 ? capture_time_us
-                                                 : webrtc::TimeMicros())
+          .set_timestamp_us(aligned_timestamp_us)
           .set_id(source_id_)
           .build();
 

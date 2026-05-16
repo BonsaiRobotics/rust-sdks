@@ -28,6 +28,7 @@
 #include "api/video/video_frame.h"
 #include "media/base/adapted_video_track_source.h"
 #include "rtc_base/synchronization/mutex.h"
+#include "rtc_base/timestamp_aligner.h"
 #include "rust/cxx.h"
 
 namespace livekit_ffi {
@@ -153,6 +154,13 @@ class EncodedVideoTrackSource {
     // stores the (user_timestamp, frame_id) pair on the handler so the
     // C++ trailer transformer can find it by capture_time_us later.
     std::shared_ptr<PacketTrailerHandler> packet_trailer_handler_;
+
+    // Translates the producer's wall-clock timestamps into the
+    // monotonic clock domain that WebRTC uses internally for capture
+    // times.  The same aligned value is used as the VideoFrame's
+    // timestamp_us and as the storage key for packet trailer metadata,
+    // so the downstream FrameTransformer lookup matches.
+    webrtc::TimestampAligner timestamp_aligner_;
 
     static constexpr size_t kMaxQueueSize = 8;
   };
