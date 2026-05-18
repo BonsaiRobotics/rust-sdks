@@ -427,10 +427,6 @@ impl LocalParticipant {
                 // can find the metadata at encoded-frame time.
                 #[cfg(not(target_arch = "wasm32"))]
                 if let RtcVideoSource::Encoded(ref encoded_source) = video_track.rtc_source() {
-                    log::info!(
-                        "packet_trailer: wiring handler to encoded source for track {}",
-                        publication.sid()
-                    );
                     encoded_source.set_packet_trailer_handler(handler.clone());
                 }
             }

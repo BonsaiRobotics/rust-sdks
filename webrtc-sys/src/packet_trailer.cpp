@@ -76,55 +76,19 @@ void PacketTrailerTransformer::TransformSend(
 
   auto data = frame->GetData();
 
-  // Look up the frame metadata by the frame's capture time.
-  // CaptureTime() returns Timestamp::Millis(capture_time_ms_) where
-  // capture_time_ms_ = timestamp_us / 1000.  So capture_time->us()
-  // has millisecond precision (bottom 3 digits always zero).
-  // store_frame_metadata() truncates its key the same way.
+  // Look up the frame metadata by the frame's capture time. The
+  // EncodedVideoTrackSource feeds an aligned monotonic timestamp into
+  // both the dummy VideoFrame and the send_map_ key, so CaptureTime()
+  // matches the stored key exactly.
   PacketTrailerMetadata meta_to_embed{0, 0, 0};
   auto capture_time = frame->CaptureTime();
-  bool diag_found = false;
-  int64_t diag_lookup_us = -1;
-  size_t diag_map_size = 0;
-  int64_t diag_sample_key = 0;
   if (capture_time.has_value()) {
-    int64_t capture_us = capture_time->us();
-    diag_lookup_us = capture_us;
-
     webrtc::MutexLock lock(&send_map_mutex_);
-    diag_map_size = send_map_.size();
-    if (!send_map_.empty()) {
-      diag_sample_key = send_map_.begin()->first;
-    }
-    auto it = send_map_.find(capture_us);
+    auto it = send_map_.find(capture_time->us());
     if (it != send_map_.end()) {
       meta_to_embed = it->second;
-      diag_found = true;
       // Don't erase — simulcast layers share the same capture time.
       // Entries are pruned by capacity in store_frame_metadata().
-    }
-  } else {
-    RTC_LOG(LS_WARNING)
-        << "PacketTrailerTransformer::TransformSend CaptureTime() not available"
-        << " ssrc=" << ssrc << " rtp_ts=" << rtp_timestamp;
-  }
-
-  // Throttled diagnostic: log once per second so we can see the
-  // lookup key, sample stored key, and map size from journalctl.
-  // Distinguishes "store_frame_metadata never fires" (map size 0)
-  // from "key mismatch" (map size > 0 but no hit).
-  {
-    static thread_local int64_t last_diag_log_ms = 0;
-    int64_t now_ms = webrtc::TimeMillis();
-    if (now_ms - last_diag_log_ms > 1000) {
-      last_diag_log_ms = now_ms;
-      RTC_LOG(LS_INFO) << "PacketTrailerTransformer::TransformSend"
-                       << " transformer=" << static_cast<const void*>(this)
-                       << " ssrc=" << ssrc << " rtp_ts=" << rtp_timestamp
-                       << " lookup_us=" << diag_lookup_us
-                       << " map_size=" << diag_map_size
-                       << " sample_key=" << diag_sample_key
-                       << " found=" << (diag_found ? "yes" : "no");
     }
   }
 
@@ -470,19 +434,6 @@ void PacketTrailerHandler::store_frame_metadata(
     int64_t capture_timestamp_us,
     uint64_t user_timestamp,
     uint32_t frame_id) const {
-  // Throttled log so we can pair handler identity + transformer identity
-  // against the TransformSend side and confirm both ends share the same
-  // C++ instance (and therefore the same send_map_).
-  static thread_local int64_t last_log_ms = 0;
-  int64_t now_ms = webrtc::TimeMillis();
-  if (now_ms - last_log_ms > 1000) {
-    last_log_ms = now_ms;
-    RTC_LOG(LS_INFO) << "PacketTrailerHandler::store_frame_metadata"
-                     << " handler=" << static_cast<const void*>(this)
-                     << " transformer=" << transformer_.get()
-                     << " capture_us=" << capture_timestamp_us
-                     << " user_ts=" << user_timestamp;
-  }
   transformer_->store_frame_metadata(capture_timestamp_us, user_timestamp, frame_id);
 }
 
