@@ -150,6 +150,12 @@ class EncodedVideoTrackSource {
     std::vector<uint8_t> cached_sps_;
     std::vector<uint8_t> cached_pps_;
 
+    // Throttles the "keyframe missing parameter sets" warning (see
+    // push_encoded_frame) to once per kMissingParamsLogIntervalUs, since the
+    // producer can hit this on every keyframe interval if it never inlines
+    // SPS/PPS in-band.
+    int64_t last_missing_params_log_us_ = 0;
+
     // Optional packet trailer handler. When set, push_encoded_frame
     // stores the (user_timestamp, frame_id) pair on the handler so the
     // C++ trailer transformer can find it by capture_time_us later.
@@ -163,6 +169,7 @@ class EncodedVideoTrackSource {
     webrtc::TimestampAligner timestamp_aligner_;
 
     static constexpr size_t kMaxQueueSize = 8;
+    static constexpr int64_t kMissingParamsLogIntervalUs = 5'000'000;
   };
 
   EncodedVideoTrackSource(EncodedVideoCodecType codec,

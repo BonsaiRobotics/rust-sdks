@@ -276,12 +276,19 @@ bool EncodedVideoTrackSource::InternalSource::push_encoded_frame(
           data = std::move(prefixed);
           has_sps_pps = true;
         } else if (frame_missing) {
-          RTC_LOG(LS_WARNING)
-              << "EncodedVideoTrackSource[" << source_id_
-              << "] keyframe is missing parameter sets and none are cached; "
-                 "receiver will fail to decode until the producer emits a "
-                 "keyframe with inline SPS/PPS"
-              << (h265 ? "/VPS" : "");
+          const int64_t now_us = webrtc::TimeMicros();
+          if (now_us - last_missing_params_log_us_ >=
+              kMissingParamsLogIntervalUs) {
+            last_missing_params_log_us_ = now_us;
+            RTC_LOG(LS_WARNING)
+                << "EncodedVideoTrackSource[" << source_id_
+                << "] keyframe is missing parameter sets and none are "
+                   "cached; receiver will fail to decode until the producer "
+                   "emits a keyframe with inline SPS/PPS"
+                << (h265 ? "/VPS" : "")
+                << " (further occurrences suppressed for "
+                << (kMissingParamsLogIntervalUs / 1000000) << "s)";
+          }
         } else {
           // Frame already carries required params (producer inlined them).
           has_sps_pps = true;
