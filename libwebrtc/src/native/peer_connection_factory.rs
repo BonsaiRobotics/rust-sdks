@@ -50,14 +50,14 @@ impl Default for PeerConnectionFactory {
                 let msg = msg.strip_suffix("\r\n").or(msg.strip_suffix('\n')).unwrap_or(&msg);
                 // Bridge libwebrtc's severity to the matching `log` level
                 // so callers using the default `RUST_LOG=info` get to
-                // see WARNING/ERROR plus any explicit RTC_LOG(LS_INFO).
-                // Verbose stays at TRACE so the firehose only fires
-                // when callers explicitly opt in via `libwebrtc=trace`.
+                // see WARNING/ERROR. INFO stays at DEBUG — libwebrtc's own
+                // internal INFO logging (quality scaler, bandwidth
+                // estimator, network interface enumeration, etc.) is very
+                // chatty and floods `RUST_LOG=info` otherwise; opt in with
+                // `libwebrtc=info` when debugging.
                 match severity {
                     LoggingSeverity::Error => log::error!(target: "libwebrtc", "{}", msg),
                     LoggingSeverity::Warning => log::warn!(target: "libwebrtc", "{}", msg),
-                    LoggingSeverity::Info => log::info!(target: "libwebrtc", "{}", msg),
-                    LoggingSeverity::Verbose => log::trace!(target: "libwebrtc", "{}", msg),
                     _ => log::debug!(target: "libwebrtc", "{}", msg),
                 }
             }));
