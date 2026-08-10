@@ -114,9 +114,14 @@ impl NativeEncodedVideoSource {
         self.inner.resolution.lock().clone()
     }
 
-    /// Push an encoded (compressed) frame to the track. Returns `true` if the frame was
-    /// accepted, `false` if the internal queue was full and the frame had to
-    /// be dropped.
+    /// Push an encoded (compressed) frame to the track. Returns `true` if the
+    /// frame was accepted, `false` if it was dropped. The internal queue is
+    /// freshest-wins: a keyframe supersedes (clears) everything queued, and a
+    /// delta that overflows the queue flushes it and puts the source into a
+    /// needs-keyframe state — further deltas are refused (the flush broke
+    /// their reference chain) until the next keyframe, and the observer's
+    /// `on_keyframe_requested` fires so the producer can pull that keyframe
+    /// forward.
     ///
     /// When a `PacketTrailerHandler` has been registered (see
     /// `set_packet_trailer_handler`) and `info.user_timestamp != 0`, the
