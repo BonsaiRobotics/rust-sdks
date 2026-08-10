@@ -297,7 +297,9 @@ bool EncodedVideoTrackSource::InternalSource::push_encoded_frame(
     // push_encoded_frame. A late teleop frame is a useless frame, so the
     // queue never holds more than the newest decodable suffix.
     if (is_keyframe) {
-      if (queue_.size() > 1) {
+      // > 2 rather than > 0: one or two resident frames at IDR time is
+      // normal jitter at steady state, not a backlog worth a log line.
+      if (queue_.size() > 2) {
         RTC_LOG(LS_INFO) << "EncodedVideoTrackSource[" << source_id_
                          << "] keyframe supersedes " << queue_.size()
                          << " queued frame(s)";
