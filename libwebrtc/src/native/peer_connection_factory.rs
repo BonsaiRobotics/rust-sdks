@@ -48,6 +48,28 @@ impl Default for PeerConnectionFactory {
             *log_sink = Some(sys_rtc::ffi::new_log_sink(|msg, severity| {
                 use sys_rtc::ffi::LoggingSeverity;
                 let msg = msg.strip_suffix("\r\n").or(msg.strip_suffix('\n')).unwrap_or(&msg);
+                // ICE probing is structurally noisy on multi-interface
+                // hosts: unroutable interfaces (VPN, link-local IPv6) make
+                // STUN/TURN sockets fail and retry every few seconds in
+                // perfectly healthy operation, all at WARNING/ERROR. Those
+                // sources stay at debug so the warnings that matter
+                // (pacer, encoder, encoded sources) are readable at
+                // `RUST_LOG=info`.
+                const NOISY_SOURCES: [&str; 6] = [
+                    "(stun_port.cc",
+                    "(turn_port.cc",
+                    "(connection.cc",
+                    "(basic_packet_socket_factory.cc",
+                    "(tcp_port.cc",
+                    // ~1 Hz "Failed to lookup send time" on healthy encoded
+                    // tracks (feedback for packets outside the send-time
+                    // history, e.g. probes) — observed steady-state on-robot.
+                    "(transport_feedback_adapter.cc",
+                ];
+                if NOISY_SOURCES.iter().any(|s| msg.starts_with(s)) {
+                    log::debug!(target: "libwebrtc", "{}", msg);
+                    return;
+                }
                 // Bridge libwebrtc's severity to the matching `log` level
                 // so callers using the default `RUST_LOG=info` get to
                 // see WARNING/ERROR. INFO stays at DEBUG — libwebrtc's own

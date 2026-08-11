@@ -93,7 +93,20 @@ class EncodedVideoTrackSource {
 
     // Enqueues the encoded bytes and pushes one dummy VideoFrame into the
     // WebRTC pipeline so the encoder tick fires. Returns false if the frame
-    // was dropped because the queue was full and the frame was not a keyframe.
+    // was dropped.
+    //
+    // Freshest-frame queue policy (teleop: a late frame is a useless
+    // frame):
+    //  - a KEYFRAME clears the queue before enqueueing — it supersedes
+    //    every older frame by definition, and the reset also drains any
+    //    standing backlog left by downstream frame drops (pops only
+    //    happen on pushes, so the queue can otherwise never shrink);
+    //  - a DELTA that overflows the queue flushes it, is itself dropped,
+    //    and flips the source into needs-keyframe mode: further deltas
+    //    are refused (they extend a reference chain the flush broke)
+    //    until the next keyframe arrives. The registered observer gets
+    //    on_keyframe_requested so the producer can pull that keyframe
+    //    forward instead of waiting out the GOP.
     //
     // When a `PacketTrailerHandler` has been registered (via
     // `set_packet_trailer_handler`) AND `user_timestamp != 0`, the
@@ -137,6 +150,9 @@ class EncodedVideoTrackSource {
 
     mutable webrtc::Mutex mutex_;
     std::deque<DequeuedFrame> queue_;
+    // Set when an overflow flush broke the reference chain; deltas are
+    // refused until the next keyframe clears it. Guarded by mutex_.
+    bool need_keyframe_ = false;
     uint32_t width_;
     uint32_t height_;
     std::unique_ptr<rust::Box<EncodedVideoSourceWrapper>> observer_;
@@ -168,7 +184,9 @@ class EncodedVideoTrackSource {
     // so the downstream FrameTransformer lookup matches.
     webrtc::TimestampAligner timestamp_aligner_;
 
-    static constexpr size_t kMaxQueueSize = 8;
+    // Small on purpose: at 15 fps four frames is ~270 ms — anything deeper
+    // is latency the operator can feel. Keyframes reset the queue anyway.
+    static constexpr size_t kMaxQueueSize = 4;
     static constexpr int64_t kMissingParamsLogIntervalUs = 5'000'000;
   };
 

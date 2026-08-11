@@ -194,16 +194,13 @@ bool EncodedVideoTrackSource::InternalSource::push_encoded_frame(
   int64_t aligned_timestamp_us = timestamp_aligner_.TranslateTimestamp(
       external_us, webrtc::TimeMicros());
 
+  // Whether the queue policy wants the producer to send a keyframe.
+  // Signalled outside the lock: notify_keyframe_requested() takes mutex_
+  // itself, and webrtc::Mutex is not recursive.
+  bool request_keyframe = false;
+
   {
     webrtc::MutexLock lock(&mutex_);
-
-    // If a packet trailer handler was registered and the caller supplied
-    // a user timestamp, store the (user_timestamp, frame_id) pair on the
-    // handler keyed by the aligned timestamp.
-    if (packet_trailer_handler_ && user_timestamp != 0) {
-      packet_trailer_handler_->store_frame_metadata(aligned_timestamp_us,
-                                                    user_timestamp, frame_id);
-    }
 
     if (width != 0 && height != 0) {
       width_ = width;
@@ -296,25 +293,62 @@ bool EncodedVideoTrackSource::InternalSource::push_encoded_frame(
       }
     }
 
-    // Bounded queue: drop-oldest, but never drop a keyframe.
-    while (queue_.size() >= kMaxQueueSize) {
-      if (queue_.front().is_keyframe && !is_keyframe) {
-        RTC_LOG(LS_WARNING)
-            << "EncodedVideoTrackSource[" << source_id_
-            << "] queue full; dropping incoming delta to preserve keyframe";
-        return false;
+    // Freshest-frame queue policy — see the header doc on
+    // push_encoded_frame. A late teleop frame is a useless frame, so the
+    // queue never holds more than the newest decodable suffix.
+    if (is_keyframe) {
+      // > 2 rather than > 0: one or two resident frames at IDR time is
+      // normal jitter at steady state, not a backlog worth a log line.
+      if (queue_.size() > 2) {
+        RTC_LOG(LS_INFO) << "EncodedVideoTrackSource[" << source_id_
+                         << "] keyframe supersedes " << queue_.size()
+                         << " queued frame(s)";
       }
-      queue_.pop_front();
+      queue_.clear();
+      need_keyframe_ = false;
+    } else if (need_keyframe_) {
+      // An earlier flush broke the reference chain; this delta extends
+      // nothing decodable. The producer already got the keyframe request.
+      return false;
+    } else if (queue_.size() >= kMaxQueueSize) {
+      // The consumer is behind and everything queued is one chain of
+      // deltas (a keyframe would have cleared it) — delivering them late
+      // is exactly the latency this policy exists to prevent, and
+      // dropping any prefix breaks the chain anyway. Flush, refuse this
+      // delta too, and pull the next keyframe forward.
+      RTC_LOG(LS_WARNING)
+          << "EncodedVideoTrackSource[" << source_id_ << "] queue overflow; "
+          << "flushed " << queue_.size()
+          << " stale frame(s), waiting for a keyframe";
+      queue_.clear();
+      need_keyframe_ = true;
+      request_keyframe = true;
     }
 
-    DequeuedFrame f;
-    f.data = std::move(data);
-    f.is_keyframe = is_keyframe;
-    f.has_sps_pps = has_sps_pps;
-    f.width = width_;
-    f.height = height_;
-    f.capture_time_us = aligned_timestamp_us;
-    queue_.push_back(std::move(f));
+    if (!need_keyframe_) {
+      // If a packet trailer handler was registered and the caller supplied
+      // a user timestamp, store the (user_timestamp, frame_id) pair on the
+      // handler keyed by the aligned timestamp. Only for frames actually
+      // enqueued — a dropped frame's bytes never reach the wire.
+      if (packet_trailer_handler_ && user_timestamp != 0) {
+        packet_trailer_handler_->store_frame_metadata(aligned_timestamp_us,
+                                                      user_timestamp, frame_id);
+      }
+
+      DequeuedFrame f;
+      f.data = std::move(data);
+      f.is_keyframe = is_keyframe;
+      f.has_sps_pps = has_sps_pps;
+      f.width = width_;
+      f.height = height_;
+      f.capture_time_us = aligned_timestamp_us;
+      queue_.push_back(std::move(f));
+    }
+  }
+
+  if (request_keyframe) {
+    notify_keyframe_requested();
+    return false;
   }
 
   // Emit a dummy VideoFrame so the WebRTC pipeline ticks. The actual bytes
